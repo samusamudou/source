@@ -28,7 +28,7 @@ __declspec(naked) int __cdecl strncmp(const char *string1, const char *string2, 
 {
 	__asm
 	{
-		jmp     dword ptr [strncmpDispatch]
+		jmp     dword ptr [strncmp386]
 	}
 }
 

@@ -14634,8 +14634,38 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				if (!string_empty(&Src))
 					*(--string_end(&Src)) = '\0';
 				string_shrink_to_fit(&Src);
+#if SCOPE_SUPPORT
+				for (size_t i = 0; i < nNumberOfVariable; i++)
+				{
+					register PMARKUP_VARIABLE v = &lpVariable[i];
+					if (v->Node)
+					{
+#if !defined(__BORLANDC__)
+						*(uint64_t*)pair_second(v->Node, uint32_t) = v->Value.Quad;
+#else
+						v->Node->second = make_pair(v->Value.Low, v->Value.High);
+#endif
+					}
+				}
+#endif
 				lpOperandTop->Quad = InternalParsing(this, SSGS, &Src, IsInteger, (va_list)lpParams);
 				lpOperandTop->IsQuad = !IsInteger || lpOperandTop->High;
+#if SCOPE_SUPPORT
+				for (size_t i = 0; i < nNumberOfVariable; i++)
+				{
+					register PMARKUP_VARIABLE v = &lpVariable[i];
+					if (v->Node)
+					{
+#if !defined(__BORLANDC__)
+						v->Value.Quad = *(uint64_t *)pair_second(v->Node, uint32_t);
+#else
+						v->Value.Low = v->Node->second.first;
+						v->Value.High = v->Node->second.second;
+#endif
+						v->Value.IsQuad = !IsInteger || !!v->Value.High;
+					}
+				}
+#endif
 				string_dtor(&Src);
 				if (lpParams != (PARAMETER *)&Terminator)
 					HeapFree(hHeap, 0, lpParams);
