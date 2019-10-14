@@ -3602,6 +3602,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 
 				if (lpTag >= lpEndOfTag)
 					goto INC_MARKUP;
+#if 0
 				if (lpTag[0].Tag == TAG_PARENTHESIS_OPEN)
 				{
 					// function
@@ -3609,7 +3610,9 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					lpMarkup->Priority = PRIORITY_FUNCTION;
 					lpMarkup->Type     = OS_PUSH | OS_MONADIC;
 				}
-				else if (lpTag + 2 < lpEndOfTag &&
+				else
+#endif
+				if (lpTag + 2 < lpEndOfTag &&
 					lpTag[0].Tag == TAG_SUB && !(lpTag[0].Type & OS_LEFT_ASSIGN) &&
 					lpTag[1].Tag == TAG_AT &&
 					lpTag[1].String == lpTag[0].String + TAG_SUB_LENGTH &&
@@ -14576,7 +14579,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				const size_t Terminator = 0;
 
 				vector_string *File;
-				string        FName, DefaultExt, Src, *it;
+				string        FName, DefaultExt, *it;
 				PARAMETER     *lpParams;
 
 				if ((lpOperandTop = lpEndOfOperand - lpMarkup->NumberOfOperand) < lpOperandBuffer)
@@ -14585,55 +14588,39 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				string_ctor_assign_cstr_with_length(&FName, lpMarkup->String, lpMarkup->Length);
 				string_ctor_assign_cstr_with_length(&DefaultExt, ".CHN", 4);
 				File = TSSGCtrl_GetSSGDataFile(this, SSGS, FName, DefaultExt, NULL);
-				if (!File)
+				if (!File || vector_empty(File))
 					goto PARSING_ERROR;
 				lpParams = (PARAMETER *)&Terminator;
 				it = vector_begin(File);
-				if (string_length(it) >= 8 && !((LPDWORD)string_begin(it))[0])
+				if (vector_size(File) > 1)
 				{
 					size_t count;
 
-					if (count = min(((LPDWORD)string_begin(it))[1], lpMarkup->NumberOfOperand))
+					if (count = min(vector_size(File) - 1, lpMarkup->NumberOfOperand))
 					{
 						PARAMETER *dest;
-						char      *src;
 						size_t    i;
 
 						lpParams = (PARAMETER *)HeapAlloc(hHeap, 0, sizeof(PARAMETER) * count + sizeof(size_t));
 						if (!lpParams)
 							goto ALLOC_ERROR;
 						dest = lpParams;
-						src = (char *)&((LPDWORD)string_begin(it))[2];
-						for (i = 0; i < count; i++)
+						for (i = 0; ++it, i < count; i++)
 						{
 							size_t length;
 
-							if (length = strlen(src))
+							if (length = string_length(it))
 							{
 								dest->Length = length;
-								dest->String = src;
+								dest->String = string_c_str(it);
 								dest->Value  = lpOperandTop[i].Quad;
 								dest++;
 							}
-							src += length + 1;
 						}
 						dest->Length = 0;
 					}
 					it++;
 				}
-				string_ctor(&Src);
-				for (; it != vector_end(File); it++)
-				{
-					char *first, *last;
-
-					first = string_begin(it);
-					last = TrimSpace(&first, string_end(it));
-					string_append_cstr_with_length(&Src, first, last - first);
-					string_push_back(&Src, '\n');
-				}
-				if (!string_empty(&Src))
-					*(--string_end(&Src)) = '\0';
-				string_shrink_to_fit(&Src);
 #if SCOPE_SUPPORT
 				for (size_t i = 0; i < nNumberOfVariable; i++)
 				{
@@ -14648,7 +14635,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 					}
 				}
 #endif
-				lpOperandTop->Quad = InternalParsing(this, SSGS, &Src, IsInteger, (va_list)lpParams);
+				lpOperandTop->Quad = InternalParsing(this, SSGS, vector_begin(File), IsInteger, (va_list)lpParams);
 				lpOperandTop->IsQuad = !IsInteger || lpOperandTop->High;
 #if SCOPE_SUPPORT
 				for (size_t i = 0; i < nNumberOfVariable; i++)
@@ -14666,7 +14653,6 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 					}
 				}
 #endif
-				string_dtor(&Src);
 				if (lpParams != (PARAMETER *)&Terminator)
 					HeapFree(hHeap, 0, lpParams);
 			}

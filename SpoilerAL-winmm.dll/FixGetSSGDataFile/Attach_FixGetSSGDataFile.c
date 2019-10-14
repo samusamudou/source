@@ -29,39 +29,29 @@ static __declspec(naked) void TSSGCtrl_GetSSGDataFile_Half(
 	}
 }
 
-static BOOL __fastcall SplitFunctionGroupTag(vector_string *names, string *params, const string *group)
+static BOOL __fastcall FunctionableGroup(string *name, vector_string *func)
 {
-	unsigned char *p, *first, *last, *src, *dest;
-	size_t        size;
-	LPDWORD       count;
+	unsigned char *p, *first, *last, *src, *dest, *end;
 
-	if (!(p = _mbschr(string_begin(group), '(')))
+	if (!(p = _mbschr(string_begin(name), '(')))
 		return FALSE;
-	first = string_begin(group);
-	last = TrimBlank(&first, p++);
-	vector_string_push_back_range(names, first, last);
-	last = TrimBlank(&p, string_end(group));
-	vector_byte_reserve(params, sizeof(DWORD) * 2 + (size = last - p) + 1);
-	*(string_end(params) = (first = string_begin(params)) + sizeof(DWORD) * 2 + size) = '\0';
-	*(((LPDWORD)first)++) = 0;
-	*(count = ((LPDWORD)first)++) = 0;
-	memcpy(first, p, size);
-	for (p = first - 1; ; )
+	end = string_end(name);
+	*(string_end(name) = TrimRightBlank(string_begin(name), p)) = '\0';
+	vector_string_resize(func, 1);
+	for (first = p + 1; ; )
 	{
 		switch (*(++p))
 		{
 		default:
 			continue;
 		case ')':
-			p = TrimRightBlank(first, p);
-			*(string_end(params) = p) = '\0';
-			*count += p != first;
+			last = TrimBlank(&first, p);
+			if (last != first) vector_string_push_back_range(func, first, last);
 			break;
 		case ',':
-			(*count)++;
-			*(p = TrimRightBlank(first, src = p)) = '\0';
-			if (size = (src = TrimLeftBlank(src + 1)) - (dest = p + 1))
-				memcpy(dest, src, (string_end(params) -= size) - dest + 1);
+			last = TrimBlank(&first, p);
+			vector_string_push_back_range(func, first, last);
+			first = p + 1;
 			continue;
 		case '/':
 			switch (p[1])
@@ -69,8 +59,7 @@ static BOOL __fastcall SplitFunctionGroupTag(vector_string *names, string *param
 			default:
 				continue;
 			case '*':
-				src = p + 1;
-				for (; ; )
+				for (src = p + 1; ; )
 				{
 					switch (*(++src))
 					{
@@ -81,7 +70,7 @@ static BOOL __fastcall SplitFunctionGroupTag(vector_string *names, string *param
 							continue;
 						src += 2;
 						dest = p--;
-						memcpy(dest, src, (string_end(params) -= src - dest) - dest + 1);
+						memmove(dest, src, (end -= src - dest) - dest + 1);
 						break;
 					case_unsigned_leadbyte_cp932:
 						if (*(++src))
@@ -94,7 +83,6 @@ static BOOL __fastcall SplitFunctionGroupTag(vector_string *names, string *param
 				continue;
 			case '/':
 			TERMINATE:
-				*(string_end(params) = p) = '\0';
 				break;
 			}
 			break;
@@ -102,7 +90,6 @@ static BOOL __fastcall SplitFunctionGroupTag(vector_string *names, string *param
 			if (*(++p))
 				continue;
 		case '\0':
-			string_end(params) = p;
 			break;
 		}
 		break;
@@ -125,27 +112,26 @@ static void __fastcall TSSGCtrl_SetSSGDataFile_IsSSL(
 
 	vector_ctor(&names);
 	for (; VIt < VEnd; VIt++) {
-		char   *src, *dest;
-		string *first, params;
+		string *first;
+		size_t length = 0;
+		vector_string func = { NULL };
 
 		if (string_length(VIt) < 7 || ((LPDWORD)string_begin(VIt))[0] != BSWAP32('[gro') || (((LPDWORD)string_begin(VIt))[1] & 0x00FFFFFF) != BSWAP32('up]\0'))
 			continue;
-		src = (dest = string_begin(VIt)) + 7;
-		memcpy(dest, src, (string_end(VIt) -= 7) - dest + 1);
-		first = VIt + 1;
+		memmove(string_begin(VIt), string_begin(VIt) + 7, (string_end(VIt) -= 7) - string_begin(VIt) + 1);
 		vector_string_clear(&names);
-		string_ctor_null(&params);
-		if (!SplitFunctionGroupTag(&names, &params, VIt)) {
-			if (!FixTheProcedure)
-				vector_string_push_back(&names, VIt);
-			else {
-				string Token;
+		if (FunctionableGroup(VIt, &func) || !FixTheProcedure)
+			vector_string_push_back(&names, VIt);
+		else
+		{
+			string Token;
 
-				string_ctor_assign_char(&Token, ',');
-				TStringDivision_List(&SSGC->strD, VIt, Token, &names, etTRIM);
-			}
+			string_ctor_assign_char(&Token, ',');
+			TStringDivision_List(&SSGC->strD, VIt, Token, &names, etTRIM);
 		}
-		while (++VIt < VEnd && (string_length(VIt) < 8 || ((LPDWORD)string_begin(VIt))[0] != BSWAP32('[/gr') || ((LPDWORD)string_begin(VIt))[1] != BSWAP32('oup]')));
+		first = VIt + 1;
+		while (++VIt < VEnd && (string_length(VIt) != 8 || ((LPDWORD)string_begin(VIt))[0] != BSWAP32('[/gr') || ((LPDWORD)string_begin(VIt))[1] != BSWAP32('oup]')))
+			length += string_length(VIt) + 1;
 		for (string *name = vector_begin(&names); name < vector_end(&names); name++) {
 			vector_string *Data;
 
@@ -161,15 +147,26 @@ static void __fastcall TSSGCtrl_SetSSGDataFile_IsSSL(
 				string_dtor(&tmpMpair.GroupTag);
 			}
 			Data = (vector_string *)pair_second_aligned(it, string);
-			if (!FixTheProcedure)
-				vector_string_clear(Data);
-			vector_string_reserve(Data, vector_size(Data) + (VIt - first) + !string_empty(&params));
-			if (!string_empty(&params))
-				vector_string_push_back(Data, &params);
-			for (const string* LineS = first; LineS < VIt; LineS++)
-				vector_string_push_back(Data, LineS);
+			if (vector_empty(&func))
+			{
+				if (!FixTheProcedure)
+					vector_string_clear(Data);
+				vector_string_reserve(Data, vector_size(Data) + (VIt - first));
+				for (const string *LineS = first; LineS < VIt; LineS++)
+					vector_string_push_back(Data, LineS);
+			}
+			else
+			{
+				string_reserve(vector_begin(&func), length);
+				for (const string *LineS = first; LineS < VIt; LineS++)
+				{
+					string_append(vector_begin(&func), LineS);
+					string_push_back(vector_begin(&func), '\n');
+				}
+				vector_string_dtor(Data);
+				*Data = func;
+			}
 		}
-		string_dtor(&params);
 	}
 	vector_string_dtor(&names);
 }
@@ -184,10 +181,9 @@ static void __cdecl TSSGCtrl_SetSSGDataFile_insert(
 		if (lb != map_end(second) && string_equals(pair_first(lb), pair_first(it))) {
 			vector_string* src = pair_second_aligned(it, string);
 			vector_string* dst = pair_second_aligned(lb, string);
-			vector_string_clear(dst);
-			vector_string_reserve(dst, vector_size(src));
-			for (string* s = string_begin(src); s < string_end(src); s++)
-				vector_string_push_back(dst, s);
+			vector_string_dtor(dst);
+			*dst = *src;
+			vector_ctor(src);
 		} else map_string_vector_insert(&lb, second, lb, pair_first(it));
 	}
 }
