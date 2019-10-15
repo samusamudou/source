@@ -1233,7 +1233,7 @@ BOOL __fastcall CorrectFunction(MARKUP *lpMarkup, MARKUP *lpEndOfMarkup, size_t 
 	return FALSE;
 }
 //---------------------------------------------------------------------
-static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_t *lpnNumberOfMarkup)
+MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_t *lpnNumberOfMarkup)
 {
 	MARKUP  *lpTagArray, *lpEndOfTag;
 	size_t  nNumberOfTag;
@@ -4694,221 +4694,230 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 	lpHeapBuffer = NULL;
 	nNumberOfHeapBuffer = 0;
 
-	p = string_begin(Src) - 1;
-	do
-		c = *(++p);
-	while (__intrinsic_isspace(c));
-
-#if LOCAL_MEMORY_SUPPORT
-	if (*p == 'L')
-	{
-		c = p[1];
-		if (__intrinsic_isascii(c))
-			if (__intrinsic_isspace(c))
-			{
-				p++;
-				do
-					c = *(++p);
-				while (__intrinsic_isspace(c));
-			}
-			else if (!__intrinsic_isalnum(c) && c != '_')
-				p++;
-	}
-#endif
-
-	end = string_end(Src);
-	while (end > p)
-	{
-		c = *(end - 1);
-		end--;
-		if (__intrinsic_isspace(c))
-			continue;
-		end++;
-		break;
-	}
-	nSrcLength = end - p;
-
-#if !ADDITIONAL_TAGS
-	if (!(lpszSrc = (LPSTR)HeapAlloc(hHeap, 0, nSrcLength + sizeof(uint32_t))))
-		goto ALLOC_ERROR;
-	memcpy(lpszSrc, p, nSrcLength);
-	lpszSrc[nSrcLength] = '\0';
-#else
-	variable = (TPrologueAttribute*)TSSGCtrl_GetAttribute(this, SSGS, atPROLOGUE);
-	if (variable && (nVariableLength = string_length(code = TEndWithAttribute_GetCode(variable))))
-	{
-		unsigned long bits;
-
-#ifndef _WIN64
-		_BitScanReverse(&bits, nVariableLength + nSrcLength + sizeof(uint32_t) - 1);
-#else
-		_BitScanReverse64(&bits, nVariableLength + nSrcLength + sizeof(uint32_t) - 1);
-#endif
-		capacity = (size_t)1 << (bits + 1);
-		if (!(lpszSrc = (LPSTR)HeapAlloc(hHeap, 0, capacity)))
-			goto ALLOC_ERROR;
-		memcpy(lpszSrc, string_c_str(code), nVariableLength);
-		memcpy(lpszSrc + nVariableLength, p, nSrcLength);
-		nSrcLength += nVariableLength;
-	}
-	else
-	{
-		unsigned long bits;
-
-#ifndef _WIN64
-		_BitScanReverse(&bits, nSrcLength + sizeof(uint32_t) - 1);
-#else
-		_BitScanReverse64(&bits, nSrcLength + sizeof(uint32_t) - 1);
-#endif
-		capacity = (size_t)1 << (bits + 1);
-		if (!(lpszSrc = (LPSTR)HeapAlloc(hHeap, 0, capacity)))
-			goto ALLOC_ERROR;
-		memcpy(lpszSrc, p, nSrcLength);
-	}
-	lpszSrc[nSrcLength] = '\0';
-
-	// remove the c style comments
-	if (nSrcLength >= 2)
-	{
-		unsigned char *end, *p1, *p2, c1, c2;
-
-		end = (p1 = lpszSrc) + nSrcLength;
-		c1 = *(p1++);
-		do
-		{
-			switch (c1)
-			{
-			case '"':
-			case '\'':
-				while ((c2 = *(p1++)) != c1 && p1 < end)
-				{
-					if (!__intrinsic_isleadbyte(c2))
-					{
-						if (c2 != '\\')
-							continue;
-						c2 = *(p1++);
-						if (p1 >= end)
-							break;
-						if (!__intrinsic_isleadbyte(c2))
-							continue;
-					}
-					if (++p1 >= end)
-						break;
-				}
-				break;
-			case '/':
-				switch (*p1)
-				{
-				case '*':
-					// block comment
-					p2 = p1;
-					p1--;
-					p2++;
-					for (; ; )
-					{
-						c1 = *(p2++);
-						if (p2 < end)
-						{
-							if (c1 != '*' || *p2 != '/')
-							{
-								if (!__intrinsic_isleadbyte(c1) || ++p2 < end)
-									continue;
-							}
-							else
-							{
-								p2++;
-								memcpy(p1, p2, (end -= p2 - p1) - p1 + 1);
-								break;
-							}
-						}
-						*(end = p1) = '\0';
-						break;
-					}
-					break;
-				case '/':
-					// end of line comment
-					p2 = p1;
-					p1--;
-					p2++;
-					for (; ; )
-					{
-						c1 = *(p2++);
-						if (p2 < end)
-						{
-							switch (c1)
-							{
-							default:
-								if (!__intrinsic_isleadbyte(c1) || ++p2 < end)
-									continue;
-								*(end = p1) = '\0';
-								break;
-							case '\r':
-								if (*p2 == '\n')
-									p2++;
-							case '\n':
-								memcpy(p1, p2, (end -= p2 - p1) - p1 + 1);
-								break;
-							}
-						}
-						else
-						{
-							*(end = p1) = '\0';
-						}
-						break;
-					}
-					break;
-				}
-				break;
-#if CODEPAGE_SUPPORT
-			default:
-				if (!__intrinsic_isleadbyte(c1))
-					break;
-#else
-			case_unsigned_leadbyte:
-#endif
-				p1++;
-				break;
-			}
-			c1 = *(p1++);
-		} while (p1 < end);
-		nSrcLength = end - lpszSrc;
-	}
-
 	attributes = SSGS->type// check for TSSGCtrl::LoopSSRFile
 		? TSSGSubject_GetAttribute(SSGS)
 		: TSSGAttributeSelector_GetNowAtteributeVec(TSSGCtrl_GetAttributeSelector(this));
-	if (attributes)
+	if (string_length(Src) == 0x0F && *(size_t*)string_begin(Src) == 0x00BFBBEF)
 	{
-		LPVOID lpMem;
-
-		nSrcLength = ReplaceDefineByHeap(attributes, &lpszSrc, nSrcLength, capacity);
-		if (nSrcLength == SIZE_MAX)
-			goto ALLOC_ERROR;
-		if (!(lpMem = HeapReAlloc(hHeap, 0, lpszSrc, nSrcLength + sizeof(uint32_t))))
-			goto ALLOC_ERROR;
-		lpszSrc = (LPSTR)lpMem;
+		size_t* cache = (size_t*)string_begin(Src);
+		lpszSrc = NULL;
+		lpMarkupArray = (MARKUP*)cache[2];
+		nNumberOfMarkup = cache[3];
 	}
-
-#if LOCAL_MEMORY_SUPPORT
-	p = lpszSrc - 1;
-	do
-		c = *(++p);
-	while (__intrinsic_isspace(c));
-	if (p[0] == 'L' && p[1] && __intrinsic_isascii(p[1]) && !__intrinsic_iscsym(p[1]) && p[1] != '=')
-	{
-		p++;
+	else {
+		p = string_begin(Src) - 1;
 		do
 			c = *(++p);
 		while (__intrinsic_isspace(c));
-		nSrcLength -= p - lpszSrc;
-		memcpy(lpszSrc, p, nSrcLength + 1);
+
+#if LOCAL_MEMORY_SUPPORT
+		if (*p == 'L')
+		{
+			c = p[1];
+			if (__intrinsic_isascii(c))
+				if (__intrinsic_isspace(c))
+				{
+					p++;
+					do
+						c = *(++p);
+					while (__intrinsic_isspace(c));
+				}
+				else if (!__intrinsic_isalnum(c) && c != '_')
+					p++;
+		}
+#endif
+
+		end = string_end(Src);
+		while (end > p)
+		{
+			c = *(end - 1);
+			end--;
+			if (__intrinsic_isspace(c))
+				continue;
+			end++;
+			break;
+		}
+		nSrcLength = end - p;
+
+#if !ADDITIONAL_TAGS
+		if (!(lpszSrc = (LPSTR)HeapAlloc(hHeap, 0, nSrcLength + sizeof(uint32_t))))
+			goto ALLOC_ERROR;
+		memcpy(lpszSrc, p, nSrcLength);
+		lpszSrc[nSrcLength] = '\0';
+#else
+		variable = (TPrologueAttribute *)TSSGCtrl_GetAttribute(this, SSGS, atPROLOGUE);
+		if (variable && (nVariableLength = string_length(code = TEndWithAttribute_GetCode(variable))))
+		{
+			unsigned long bits;
+
+#ifndef _WIN64
+			_BitScanReverse(&bits, nVariableLength + nSrcLength + sizeof(uint32_t) - 1);
+#else
+			_BitScanReverse64(&bits, nVariableLength + nSrcLength + sizeof(uint32_t) - 1);
+#endif
+			capacity = (size_t)1 << (bits + 1);
+			if (!(lpszSrc = (LPSTR)HeapAlloc(hHeap, 0, capacity)))
+				goto ALLOC_ERROR;
+			memcpy(lpszSrc, string_c_str(code), nVariableLength);
+			memcpy(lpszSrc + nVariableLength, p, nSrcLength);
+			nSrcLength += nVariableLength;
+		}
+		else
+		{
+			unsigned long bits;
+
+#ifndef _WIN64
+			_BitScanReverse(&bits, nSrcLength + sizeof(uint32_t) - 1);
+#else
+			_BitScanReverse64(&bits, nSrcLength + sizeof(uint32_t) - 1);
+#endif
+			capacity = (size_t)1 << (bits + 1);
+			if (!(lpszSrc = (LPSTR)HeapAlloc(hHeap, 0, capacity)))
+				goto ALLOC_ERROR;
+			memcpy(lpszSrc, p, nSrcLength);
+		}
+		lpszSrc[nSrcLength] = '\0';
+
+		// remove the c style comments
+		if (nSrcLength >= 2)
+		{
+			unsigned char *end, *p1, *p2, c1, c2;
+
+			end = (p1 = lpszSrc) + nSrcLength;
+			c1 = *(p1++);
+			do
+			{
+				switch (c1)
+				{
+				case '"':
+				case '\'':
+					while ((c2 = *(p1++)) != c1 && p1 < end)
+					{
+						if (!__intrinsic_isleadbyte(c2))
+						{
+							if (c2 != '\\')
+								continue;
+							c2 = *(p1++);
+							if (p1 >= end)
+								break;
+							if (!__intrinsic_isleadbyte(c2))
+								continue;
+						}
+						if (++p1 >= end)
+							break;
+					}
+					break;
+				case '/':
+					switch (*p1)
+					{
+					case '*':
+						// block comment
+						p2 = p1;
+						p1--;
+						p2++;
+						for (; ; )
+						{
+							c1 = *(p2++);
+							if (p2 < end)
+							{
+								if (c1 != '*' || *p2 != '/')
+								{
+									if (!__intrinsic_isleadbyte(c1) || ++p2 < end)
+										continue;
+								}
+								else
+								{
+									p2++;
+									memcpy(p1, p2, (end -= p2 - p1) - p1 + 1);
+									break;
+								}
+							}
+							*(end = p1) = '\0';
+							break;
+						}
+						break;
+					case '/':
+						// end of line comment
+						p2 = p1;
+						p1--;
+						p2++;
+						for (; ; )
+						{
+							c1 = *(p2++);
+							if (p2 < end)
+							{
+								switch (c1)
+								{
+								default:
+									if (!__intrinsic_isleadbyte(c1) || ++p2 < end)
+										continue;
+									*(end = p1) = '\0';
+									break;
+								case '\r':
+									if (*p2 == '\n')
+										p2++;
+								case '\n':
+									memcpy(p1, p2, (end -= p2 - p1) - p1 + 1);
+									break;
+								}
+							}
+							else
+							{
+								*(end = p1) = '\0';
+							}
+							break;
+						}
+						break;
+					}
+					break;
+#if CODEPAGE_SUPPORT
+				default:
+					if (!__intrinsic_isleadbyte(c1))
+						break;
+#else
+				case_unsigned_leadbyte:
+#endif
+					p1++;
+					break;
+				}
+				c1 = *(p1++);
+			} while (p1 < end);
+			nSrcLength = end - lpszSrc;
+		}
+
+		if (attributes)
+		{
+			LPVOID lpMem;
+
+			nSrcLength = ReplaceDefineByHeap(attributes, &lpszSrc, nSrcLength, capacity);
+			if (nSrcLength == SIZE_MAX)
+				goto ALLOC_ERROR;
+			if (!(lpMem = HeapReAlloc(hHeap, 0, lpszSrc, nSrcLength + sizeof(uint32_t))))
+				goto ALLOC_ERROR;
+			lpszSrc = (LPSTR)lpMem;
+		}
+
+#if LOCAL_MEMORY_SUPPORT
+		p = lpszSrc - 1;
+		do
+			c = *(++p);
+		while (__intrinsic_isspace(c));
+		if (p[0] == 'L' && p[1] && __intrinsic_isascii(p[1]) && !__intrinsic_iscsym(p[1]) && p[1] != '=')
+		{
+			p++;
+			do
+				c = *(++p);
+			while (__intrinsic_isspace(c));
+			nSrcLength -= p - lpszSrc;
+			memcpy(lpszSrc, p, nSrcLength + 1);
+		}
+#endif
+#endif
+
+		*(uint32_t *)&lpszSrc[nSrcLength] = '\0';
+
+		lpMarkupArray = Markup(lpszSrc, nSrcLength, &nNumberOfMarkup);
 	}
-#endif
-#endif
-
-	*(uint32_t *)&lpszSrc[nSrcLength] = '\0';
-
-	lpMarkupArray = Markup(lpszSrc, nSrcLength, &nNumberOfMarkup);
 	if (!lpMarkupArray)
 		goto ALLOC_ERROR;
 	lpEndOfMarkup = lpMarkupArray + nNumberOfMarkup;
@@ -15273,10 +15282,12 @@ FAILED:
 		HeapFree(hHeap, 0, lpPostfixBuffer);
 	if (lpConstStringBuffer)
 		VirtualFree(lpConstStringBuffer, 0, MEM_RELEASE);
-	if (lpMarkupArray)
-		HeapFree(hHeap, 0, lpMarkupArray);
 	if (lpszSrc)
+	{
+		if (lpMarkupArray)
+			HeapFree(hHeap, 0, lpMarkupArray);
 		HeapFree(hHeap, 0, lpszSrc);
+	}
 	return qwResult;
 
 	#undef PROCESS_DESIRED_ACCESS
